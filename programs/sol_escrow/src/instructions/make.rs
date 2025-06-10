@@ -1,12 +1,22 @@
 use anchor_lang::prelude::*;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{
+        transfer_checked, TransferChecked
+    }, token_interface::{Mint, TokenAccount, TokenInterface}
+};
 
-#[instruction(seed: u64)]
+use crate::state::Escrow;
+use crate::errors::EscrowError;
+#[derive(Accounts)]
+#[instruction(seed: u64, bump: u8)]
 pub struct Make<'info>{
     #[account(mut)]
     pub maker : Signer<'info>, 
     #[account(
         init,
-        space = Escrow::InitSpace + Escrow::Discriminator.len(),
+        payer = maker,
+        space = Escrow::INIT_SPACE,
         seeds = [b"escrow", maker.key.as_ref(), seed.to_le_bytes().as_ref() ],
         bump
     )]
@@ -40,7 +50,7 @@ pub struct Make<'info>{
     pub vault : InterfaceAccount<'info, TokenAccount>,
 
     pub associated_token_program: Program<'info, AssociatedToken>,
-    pub token_program: Program<'info, TokenInterface>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
     
 
@@ -54,8 +64,8 @@ impl<'info> Make<'info>{
         self.escrow.set_inner(Escrow{
             seed,
             maker: self.maker.key(),
-            mint_a: self.mint_a,
-            mint_b: self.mint_b,
+            mint_a: self.mint_a.key(),
+            mint_b: self.mint_b.key(),
             recieve: amount,
             bump
         });
@@ -65,7 +75,7 @@ impl<'info> Make<'info>{
     fn deposit_token_a(&self, amount:u64 ) -> Result<()> {
         transfer_checked(
             CpiContext::new(
-                self.token_program.to_program_info(),
+                self.token_program.to_account_info(),
                 TransferChecked{
                     from: self.maker_ata_a.to_account_info(),
                     mint: self.mint_a.to_account_info(),
@@ -81,12 +91,12 @@ impl<'info> Make<'info>{
     }
 }
 
-pub fn handler(ctx: Context<Make>, seed: u8 , recieve: u64, amount: u64, ) -> Result<()>{
+pub fn handler(ctx: Context<Make>, seed: &u64 , recieve: u64, amount: u64, ) -> Result<()>{
     
     require!(recieve >= 0, EscrowError::InvalidAmount);      
     require!(amount >= 0, EscrowError::InvalidAmount);
 
-    ctx.accounts.populate_escrow(seed, amount, ctx.bumps.escrow)?;
+    ctx.accounts.populate_escrow(*seed, amount, ctx.bumps.escrow)?;
     
     ctx.accounts.deposit_token_a( amount)?;
 
